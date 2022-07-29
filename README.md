@@ -49,11 +49,11 @@ Vous pouvez modifier certains paramètres de SendOverNetwork grâce aux variable
 |-----------------------------------------|-----------------------------------------------------------------------------------|---------------------------|
 | `SON_SILENT_OUTPUT`                     | Désactive l'affichage de certains textes                                          | N'importe                 |
 | `SON_DISABLE_NOTIFICATIONS`             | Désactive les notifications Windows/macOS lors du téléchargement d'un fichier     | N'importe                 |
-| `SEND_ON_NETWORK_DEFAULT_DOWNLOAD_PATH` | Modifie le chemin par défaut utilisé pour télécharger un fichier                  | Chemin d'un dossier       |
+| `SON_DEFAULT_DOWNLOAD_PATH` | Modifie le chemin par défaut utilisé pour télécharger un fichier                  | Chemin d'un dossier       |
 | `SON_REPLACE_WITHOUT_ASKING`            | Remplace les fichiers sans demandé lorsqu'un conflit est détecté                  | N'importe                 |
 | `SON_AUTO_EXTRACT_ZIP`                  | Extrait automatiquement les fichiers ZIP téléchargé                               | N'importe                 |
 | `SON_AUTO_USE_TWITTERMINAL_SAVE`        | Importe les sauvegardes Twitterminal sans demander lorsqu'elles sont téléchargé   | N'importe                 |
-| `SEND_ON_NETWORK_DEFAULT_PORT`          | Modifie le port par défaut du serveur web utilisé lors de l'upload d'un fichier   | Port                      |
+| `SON_DEFAULT_PORT`          | Modifie le port par défaut du serveur web utilisé lors de l'upload d'un fichier   | Port                      |
 | `SON_STOP_UPLOAD_AFTER_DOWNLOAD`        | Arrête le serveur web après le téléchargement d'un fichier uploadé                | N'importe                 |
 | `SON_DISABLE_AUTO_WRITE_CLIPBOARD`      | Désactive le fait de copier du texte dans le presse-papier lors d'un upload       | N'importe                 |
 | `SON_SHOW_PUBLIC_IP`                    | Affiche l'IP publique au lieu de l'IP locale                                      | N'importe                 |
