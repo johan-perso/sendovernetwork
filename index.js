@@ -151,7 +151,7 @@ if(['--version','-v','version','v'].includes(process.argv.slice(2)[0])){
 	console.log("SendOverNetwork utilise actuellement la version " + chalk.cyan(require('./package.json').version))
 	console.log("────────────────────────────────────────────")
 	console.log("Développé par Johan le stickman")
-	console.log(chalk.cyan("https://johanstickman.com"))
+	console.log(chalk.cyan("https://johanstick.me"))
 	process.exit()
 }
 
@@ -517,17 +517,17 @@ async function upload(file, port){
 		// En cas d'erreur du serveur
 		server.on('error', (err) => {
 			// Si c'est car le port est déjà utilisé
-			if(err.code == 'EADDRINUSE'){
+			if(err.code == 'EADDRINUSE' || err.code == 'EACCES'){
 				// Modifier le spinner
 				spinner.text = `Le port ${port} est déjà utilisé. Nouvelle tentative..`
 				
 				// Réessayer
 				upload(file, port + 5)
+			} else {
+				// Afficher l'erreur
+				spinner.text = err?.message || err?.toString() || err
+				spinner.stop()
 			}
-
-			// Afficher l'erreur
-			spinner.text = err?.message || err?.toString() || err
-			spinner.stop()
 		})
 }
 
