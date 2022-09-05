@@ -103,4 +103,4 @@ La liste complète se situe [ici](#variables-denvironnements).
 
 ## Licence
 
-MIT © [Johan](https://johanstickman.com)
+MIT © [Johan](https://johanstick.me)
