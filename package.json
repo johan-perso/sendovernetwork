@@ -1,6 +1,6 @@
 {
 	"name": "sendovernetwork",
-	"version": "2.0.0",
+	"version": "2.0.1",
 	"description": "Partager des fichiers via son réseau internet",
 	"main": "index.js",
 	"bin": {
