@@ -66,7 +66,7 @@ Vous pouvez modifier certains paramètres de SendOverNetwork grâce aux variable
 | `SON_DISABLE_AUTO_WRITE_CLIPBOARD`   | Désactive le fait de copier du texte dans le presse-papier lors d'un envoi        | N'importe                     |
 | `SON_SHOW_PUBLIC_IP`                 | Affiche l'IP publique au lieu de l'IP locale                                      | N'importe                     |
 | `SON_ONLY_COPY_IP`                   | Ne copie que l'IP au lieu de la commande entière lors de l'envoi d'un fichier     | N'importe                     |
-| `SON_ALWAYS_IGNORE_SOME_FOLDERS`     | Ignorer les dossiers `.git` et `node_modules` lors d'un envoi de fichiers        	| N'importe                     |
+| `SON_ALWAYS_IGNORE_SOME_FOLDERS`     | Ignorer les dossiers `.git` et `node_modules` lors d'un envoi de fichiers         | N'importe                     |
 | `SON_DISABLE_PROMPT`                 | Empêche l'affichage de prompt (le CLI propose un choix à remplir avec le clavier) | N'importe                     |
 | `SON_DISABLE_SPINNERS`               | Empêche l'affichage d'icône/animations de chargement dans le terminal             | N'importe                     |
 
