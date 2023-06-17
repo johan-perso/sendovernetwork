@@ -28,9 +28,40 @@ const os = require('os');
 const notifier = require('node-notifier');
 const fetch = require('node-fetch');
 const boxen = require('boxen');
-const find = require('local-devices');
+const slash = require('slash')
 const ora = require('ora'); var spinner = ora('');
-const pkg = require('./package.json')
+const pkg = require('./package.json');
+
+// Fonction pour faire une requête fetch, avec un timeout
+async function fetchWithTimeout(url, options={}, timeout){
+	const controller = new AbortController()
+	const id = setTimeout(() => controller.abort(), timeout)
+	const response = await fetch(url, {
+		...options, signal: controller.signal
+	})
+	clearTimeout(id)
+	return response
+}
+
+// Remplacement de certaines fonctions de fs
+function readdirSync(file){
+	try {
+		var dir = fs.readdirSync(file)
+		return dir
+	} catch (e) {
+		console.log(`Opération readdirSync sur "${file}" impossible : ${e.error || e.code || e.message || e}`)
+		return null
+	}
+}
+function statSync(file){
+	try {
+		var stat = fs.statSync(file)
+		return stat
+	} catch (e) {
+		console.log(`Opération statSync sur "${file}" impossible : ${e.error || e.code || e.message || e}`)
+		return null
+	}
+}
 
 // Fonction pour obtenir les fichiers/dossiers dans un dossier
 var walkI = 0
@@ -42,10 +73,12 @@ async function walk(dir){
 	}
 	else walkI++
 	var results = []
-	var list = fs.readdirSync(dir)
+	var list = readdirSync(dir)
+	if(!list) return results
 	for(var i = 0; i < list.length; i++){
 		file = path.join(dir, list[i])
-		var stat = fs.statSync(file)
+		var stat = statSync(file)
+		if(!stat) continue
 		var isDirectory = stat && stat.isDirectory()
 		if(isDirectory && !shouldAskIgnoreFolder && (path.basename(file) == 'node_modules' || path.basename(file) == '.git')){
 			if(!process.env.SON_DISABLE_SPINNERS) spinner.stop()
@@ -113,8 +146,13 @@ async function askIgnoreFolder(filePath){
 			{ name: 'Envoyer quand même', value: 'send' },
 			{ name: 'Tout envoyer', value: 'send-all' },
 			{ name: 'Ignorer ce dossier', value: 'ignore' },
+			{ name: 'Ignorer ce genre de dossiers', value: 'ignore-all' },
 		]
 	}])
+	if(action == 'ignore-all'){
+		process.env.SON_ALWAYS_IGNORE_SOME_FOLDERS = true
+		return 'ignore'
+	}
 
 	return action
 }
@@ -175,7 +213,7 @@ async function askIgnoreFolder(filePath){
 
 	// Vérifier si la sous commande download est présente
 	if(defaultArgs.includes('fetchips') || defaultArgs.includes('--fetchips')){
-		scanNetwork().then(ips => { console.log(JSON.stringify(ips)) }) // le résultat est moche mais.. c'est fait pour être parsé par un autre programme (dans le but d'automatiser des transferts par exemple)
+		scanNetwork(true) // le résultat est moche mais.. c'est fait pour être parsé par un autre programme (dans le but d'automatiser des transferts par exemple)
 	}
 
 	// Vérifier si la sous commande download est présente
@@ -340,19 +378,19 @@ function showTUI(){
 	}
 }
 
-// Fonction pour télécharger un fichier
+// Fonction pour télécharger
 async function downloadFile(link, wherePath){
 	// Définir le chemin du fichier
-	wherePath = wherePath || process.env.SON_DEFAULT_DOWNLOAD_PATH || path.join(process.cwd()) || path.join(require('os').homedir()) || '.'
+	wherePath = wherePath || process.env.SON_DEFAULT_DOWNLOAD_PATH || path.join(process.cwd()) || path.join(os.homedir()) || '.'
 
 	// Importer des librairies
 	const hr = require('@tsmx/human-readable');
-	const os = require('os')
 
-	// Si le lien n'est pas fourni, afficher une erreur
+	// Si le lien n'est pas fourni, chercher sur le réseau local
 	if(!link){
-		console.error(`Aucun lien n'est donné. Exemple : "${chalk.blue('sendovernetwork download http://192.168.1.52:3410')}"`)
-		process.exit()
+		var link = await scanNetwork()
+		link = link[0]?.ip
+		if(!link) console.error(`Aucun lien n'est donné. Exemple : "${chalk.blue('sendovernetwork download http://192.168.1.52:3410')}"`), process.exit()
 	}
 
 	// Si le lien ne commence pas par http:// ou https://
@@ -435,12 +473,15 @@ async function downloadFile(link, wherePath){
 
 	// Lorsqu'on reçoit un tronçon de fichier, ou qu'on reçoit la liste des fichiers
 	var filesList
+	var receivedBytes = 0
+	var totalBytes = 0
 	socket.on('file', async (content, callback) => {
 		// Mettre dans le cache la liste des fichiers
 		if(!filesList && content?.state == 'before'){
 			filesList = content.filesList
 			filesList = filesList.map(file => {
 				file.relativePath = preventBackwardPath(file.relativePath)
+				if(file.type != 'dir') totalBytes += file.size
 				return file
 			})
 		}
@@ -478,16 +519,15 @@ async function downloadFile(link, wherePath){
 				spinner.start()
 			}
 			for(var i = 0; i < filesList.length; i++){
-				if(!filesList[i].savePath) filesList[i].savePath = filesList[i].relativePath
-
-				if(filesList[i].type == 'dir' && !fs.existsSync(path.join(wherePath, filesList[i].savePath))){
-					fs.mkdirSync(path.join(wherePath, filesList[i].savePath), { recursive: true })
+				if(!filesList[i].savePath) filesList[i].savePath = preventBackwardPath(slash(filesList[i].relativePath))
+				if(filesList[i].type == 'dir' && !fs.existsSync(slash(path.join(wherePath, filesList[i].savePath)))){
+					fs.mkdirSync(slash(path.join(wherePath, filesList[i].savePath)), { recursive: true })
 				}
-				if(!fs.existsSync(path.join(wherePath, path.dirname(filesList[i].savePath)))){
-					fs.mkdirSync(path.join(wherePath, path.dirname(filesList[i].savePath)), { recursive: true })
+				if(!fs.existsSync(slash(path.join(wherePath, path.dirname(filesList[i].savePath))))){
+					fs.mkdirSync(slash(path.join(wherePath, path.dirname(filesList[i].savePath))), { recursive: true })
 				}
 
-				if(filesList[i].type != 'dir' && filesList[i].size == 0 && !fs.existsSync(path.join(wherePath, filesList[i].savePath))) fs.writeFileSync(path.join(wherePath, filesList[i].savePath), '')
+				if(filesList[i].type != 'dir' && filesList[i].size == 0 && !fs.existsSync(slash(path.join(wherePath, filesList[i].savePath)))) fs.writeFileSync(slash(path.join(wherePath, filesList[i].savePath)), '')
 			}
 			if(process.env.SON_DISABLE_SPINNERS) console.log(`FILE-PREPARE_Préparation des ${filesList.length} éléments terminés`)
 			else if(filesList.length > 2){
@@ -515,10 +555,11 @@ async function downloadFile(link, wherePath){
 			var file = filesList.find(file => file.relativePath == preventBackwardPath(content.relativePath))
 
 			// Si on a pas trouvé le fichier, on ne fait rien
-			if(!file) return callback('ignore')
+			if(!file) return callback('ok') // On dit au serveur qu'on a bien reçu le fichier, mais on ne l'écrit pas
 
 			// Modifier le spinner
 			file.downloadedSize = (file.downloadedSize || 0) + content?.data?.length
+			receivedBytes += content?.data?.length
 			if(process.env.SON_DISABLE_SPINNERS){
 				console.log(JSON.stringify({
 					type: 'downloadProgress',
@@ -527,6 +568,7 @@ async function downloadFile(link, wherePath){
 					size: file?.size,
 					downloaded: `${hr.fromBytes(file?.downloadedSize)}/${hr.fromBytes(file?.size)}`,
 					percent: (file.downloadedSize/file.size*100).toFixed(2),
+					totalPercent: ((receivedBytes/totalBytes)*100).toFixed(2),
 					remain: filesList.filter(a => a.type != 'dir').length - filesList.filter(a => a.type != 'dir' && a.downloadedSize == a.size).length
 				}))
 			} else {
@@ -585,50 +627,13 @@ async function downloadFile(link, wherePath){
 }
 
 // Fonction pour uploader un fichier
-async function upload(filesList, port){
+var filesListReUse = []
+async function upload(filesList, port, reUse=false){
 	// Préparer une copie des fichiers à upload (au cas où, pour plus tard)
 	var _filesList = filesList
 
-	// Afficher un spinner
-	if(process.env.SON_DISABLE_SPINNERS) console.log('GLOBAL_Préparation..')
-	else {
-		spinner.text = 'Préparation..'
-		spinner.start()
-	}
-
-	// Vérifier le port
-	if(!port && process.env.SON_DEFAULT_PORT) port = process.env.SON_DEFAULT_PORT
-	if(!port) port = 3410
-	if(!port || port && (port < 0 || port > 65535)){
-		if(!process.env.SON_DISABLE_SPINNERS) spinner.stop()
-		console.error(chalk.red("Le port doit être un nombre compris entre 0 et 65535 !"))
-		process.exit(1)
-	}
-
-	// Obtenir les fichiers/dossiers à upload
-		// Si aucun chemin n'a été donné
-		if(!filesList?.length){
-			if(!process.env.SON_DISABLE_SPINNERS) spinner.stop()
-			console.error(`Aucun fichier n'est donné. Exemple : "${chalk.blue('sendovernetwork upload stickman.png')}"`)
-			process.exit(1)
-		}
-
-		// Vérifier que tout les fichiers existent
-		for(var i = 0; i < filesList.length; i++){
-			try { fs.realpathSync(filesList[i]) }
-			catch(err){
-				if(!process.env.SON_DISABLE_SPINNERS) spinner.stop()
-				console.error(`Le fichier "${chalk.blue(filesList[i])}" est introuvable. Exemple : "${chalk.blue('sendovernetwork upload stickman.png')}"`)
-				process.exit(1)
-			}
-		}
-
-	// Supprimer les chemins en doubles
-	filesList = [...new Set(filesList)]
-
 	// Importer des librairies
 	const hr = require('@tsmx/human-readable')
-	const os = require('os')
 
 	// Importer quelques autres librairies liés au serveur web
 	const http = require('http')
@@ -640,52 +645,96 @@ async function upload(filesList, port){
 		parser: require("socket.io-msgpack-parser")
 	})
 
-	// Modifier l'état du spinner, puis ajouter tout les fichiers qui sont présents dans les dossiers
-	if(process.env.SON_DISABLE_SPINNERS) console.log('FILE-PREPARE_Analyse des fichiers..')
-	else {
-		spinner.text = 'Analyse des fichiers..'
-		spinner.start()
-	}
-	await new Promise(resolve => setTimeout(resolve, 1)) // attendre vite fait pour le spinner puisse se modifier
-	for(var i = 0; i < filesList.length; i++){
-		if(filesList[i]?.path) continue // si c'est un élément qu'on a rajouté dans la même fonction, on l'ignore (il sera traité plus tard)
-
-		if(fs.lstatSync(filesList[i]).isDirectory()){
-			// Remplacer le chemin du dossier par un objet dans l'array
-			filesList[filesList.indexOf(filesList[i])] = { path: filesList[i], type: 'dir' }
-
-			// Obtenir les fichiers du dossier
-			var files = await walk(filesList[i]?.path)
-
-			// Ajouter les fichiers du dossier à la liste
-			files.forEach(file => {
-				filesList.push({ path: file?.path || file, type: file?.type || 'file' })
-			})
+	// Si on ne réutilise pas l'ancienne liste de fichiers
+	if(!reUse){
+		// Afficher un spinner
+		if(process.env.SON_DISABLE_SPINNERS) console.log('GLOBAL_Préparation..')
+		else {
+			spinner.text = 'Préparation..'
+			spinner.start()
 		}
-	}
 
-	// Ajouter les informations sur chaque fichiers, au lieu de seulement leur chemins
-	var basePath
-	for(var i = 0; i < filesList.length; i++){
-		// S'il n'y a pas de type (= c'est un fichier, à l'extérieure d'un dossier), le chemin relatif par défaut sera celui de ce fichier
-		if(!basePath && !filesList[i]?.type) basePath = path.dirname(filesList[i])
-
-		// Ajouter les informations
-		filesList[i] = {
-			path: filesList[i]?.path || filesList[i],
-			relativePath: path.relative(basePath || '.', filesList[i]?.path || filesList[i]),
-			name: path.basename(filesList[i]?.path || filesList[i]),
-			size: (fs.statSync(filesList[i]?.path || filesList[i])).size,
-			type: filesList[i]?.type || 'file'
+		// Vérifier le port
+		if(!port && process.env.SON_DEFAULT_PORT) port = process.env.SON_DEFAULT_PORT
+		if(!port) port = 3410
+		if(typeof port != 'number') port = parseInt(port)
+		if(!port || port && (port < 0 || port > 65535)){
+			if(!process.env.SON_DISABLE_SPINNERS) spinner.stop()
+			console.error(chalk.red("Le port doit être un nombre compris entre 0 et 65535 !"))
+			process.exit(1)
 		}
-	}
 
-	// Afficher le nombre de fichiers trouvés
-	if(process.env.SON_DISABLE_SPINNERS) console.log(`FILE-PREPARE_${filesList.length} fichiers ont été trouvés.`)
-	else if(filesList.length > 5){
-		spinner.text = `${filesList.length} fichiers ont été trouvés.`
-		spinner.succeed()
-	} else spinner.stop()
+		// Obtenir les fichiers/dossiers à upload
+			// Si aucun chemin n'a été donné
+			if(!filesList?.length){
+				if(!process.env.SON_DISABLE_SPINNERS) spinner.stop()
+				console.error(`Aucun fichier n'est donné. Exemple : "${chalk.blue('sendovernetwork upload stickman.png')}"`)
+				process.exit(1)
+			}
+
+			// Vérifier que tout les fichiers existent
+			for(var i = 0; i < filesList.length; i++){
+				try { fs.realpathSync(filesList[i]) }
+				catch(err){
+					if(!process.env.SON_DISABLE_SPINNERS) spinner.stop()
+					console.error(`Le fichier "${chalk.blue(filesList[i])}" est introuvable. Exemple : "${chalk.blue('sendovernetwork upload stickman.png')}"`)
+					process.exit(1)
+				}
+			}
+
+		// Supprimer les chemins en doubles
+		filesList = [...new Set(filesList)]
+
+		// Modifier l'état du spinner, puis ajouter tout les fichiers qui sont présents dans les dossiers
+		if(process.env.SON_DISABLE_SPINNERS) console.log('FILE-PREPARE_Analyse des fichiers..')
+		else {
+			spinner.text = 'Analyse des fichiers..'
+			spinner.start()
+		}
+		await new Promise(resolve => setTimeout(resolve, 1)) // attendre vite fait pour le spinner puisse se modifier
+		for(var i = 0; i < filesList.length; i++){
+			if(filesList[i]?.path) continue // si c'est un élément qu'on a rajouté dans la même fonction, on l'ignore (il sera traité plus tard)
+
+			if(statSync(filesList[i]).isDirectory()){
+				// Remplacer le chemin du dossier par un objet dans l'array
+				filesList[filesList.indexOf(filesList[i])] = { path: filesList[i], type: 'dir' }
+
+				// Obtenir les fichiers du dossier
+				var files = await walk(filesList[i]?.path)
+
+				// Ajouter les fichiers du dossier à la liste
+				files.forEach(file => {
+					filesList.push({ path: file?.path || file, type: file?.type || 'file' })
+				})
+			}
+		}
+
+		// Ajouter les informations sur chaque fichiers, au lieu de seulement leur chemins
+		var basePath
+		for(var i = 0; i < filesList.length; i++){
+			// S'il n'y a pas de type (= c'est un fichier, à l'extérieure d'un dossier), le chemin relatif par défaut sera celui de ce fichier
+			if(!basePath && !filesList[i]?.type) basePath = path.dirname(filesList[i])
+
+			// Ajouter les informations
+			filesList[i] = {
+				path: filesList[i]?.path || filesList[i],
+				relativePath: path.relative(basePath || '.', filesList[i]?.path || filesList[i]),
+				name: path.basename(filesList[i]?.path || filesList[i]),
+				size: (statSync(filesList[i]?.path || filesList[i])).size,
+				type: filesList[i]?.type || 'file'
+			}
+		}
+
+		// Afficher le nombre de fichiers trouvés
+		if(process.env.SON_DISABLE_SPINNERS) console.log(`FILE-PREPARE_${filesList.length} fichiers ont été trouvés.`)
+		else if(filesList.length > 5){
+			spinner.text = `${filesList.length} fichiers ont été trouvés.`
+			spinner.succeed()
+		} else spinner.stop()
+
+		// Définir la variable des fichiers à réutiliser
+		filesListReUse = filesList
+	} else filesList = filesListReUse // sinon on réutilise la liste de fichiers
 
 	// Fonction pour envoyer un fichier
 	async function sendFile(file, socket){
@@ -736,7 +785,7 @@ async function upload(filesList, port){
 				// Envoyer le fichier via le socket
 				socket.emit('file', { state: 'up', relativePath: file?.relativePath, data: chunk }, async (response) => {
 					socket.packetSended++ // le packet a été envoyé
-					if(response == 'ignore') sendEnd()
+					// if(response == 'ignore') sendEnd() // ça empêche l'envoi du fichier suivant dans certains cas, j'sais pas pourquoi ptdrr
 					if(socket.packetSending == socket.packetSended && fileContentStream.isPaused()) fileContentStream.resume()
 				})
 			})
@@ -884,7 +933,7 @@ async function upload(filesList, port){
 			}
 
 			// Réessayer
-			upload(_filesList, (port || 3410) + 10)
+			upload(_filesList, (port || 3410) + 10, true)
 		} else {
 			// Afficher l'erreur
 			if(process.env.SON_DISABLE_SPINNERS) console.error(err?.message || err?.toString() || err)
@@ -896,19 +945,35 @@ async function upload(filesList, port){
 	})
 }
 
-// Fonction pour obtenir toute les IPs présente dans la config SSH
-function getSSHConfigIPs(){
-	// Si on a désactivé la fonction
-	if(process.env.SON_IGNORE_SSH_CONFIG) return []
+// Fonction pour trouver tout les appareils sur un réseau local
+async function findIPsToCheck(){
+	// Obtenir sa propre adresse IP
+	var ownIP = await getLocalIP(true)
 
-	// Obtenir le contenu du fichier
-	var sshConfig = fs.readFileSync(path.join(require('os').homedir(), '.ssh', 'config')).toString().trim().split('\n')
+	// Obtenir les IPs de la config SSH
+	var potentialIps = []
+	if(!process.env.SON_IGNORE_SSH_CONFIG){
+		try {
+			sshConfig = fs.readFileSync(path.join(os.homedir(), '.ssh', 'config')).toString().trim().split('\n') // obtenir le contenu de la config
+			sshConfig = sshConfig.filter(el => el.trim().startsWith('Hostname')).map(hostname => hostname.replace('Hostname ','').trim()) // filtrer pour n'avoir que les IPs
+			potentialIps = potentialIps.concat(sshConfig)
+		} catch(e){}
+	}
 
-	// Filtrer pour n'avoir que les IPs
-	var sshConfig = sshConfig.filter(el => el.trim().startsWith('Hostname')).map(hostname => hostname.replace('Hostname ','').trim())
+	// Ajouter toutes les IPs possibles, si on a l'IP local
+	if(ownIP != '<votre ip local>'){
+		var baseIP = ownIP.split('.').slice(0, 3).join('.') + '.'
+		for(var i = 1; i < 255; i++){
+			var currentIP = baseIP + i
+			potentialIps.push(currentIP)
+		}
+	}
+
+	// Enlever celles en double, et la notre
+	potentialIps = potentialIps.filter((el, i) => potentialIps.indexOf(el) == i && el != ownIP)
 
 	// Retourner les IPs
-	return sshConfig
+	return potentialIps
 }
 
 // Fonction pour obtenir son IP local
@@ -917,14 +982,14 @@ async function getLocalIP(forceLocal=false){
 	if(process.env.SON_SHOW_PUBLIC_IP && !forceLocal) var ip = await fetch('http://api.ipify.org/?format=text').then(res => res.text());
 
 	// Obtenir l'IP
-	else var ip = require("os")?.networkInterfaces()['Wi-Fi']?.filter(i => i?.family == 'IPv4')[0] || Object.values(require("os").networkInterfaces()).flat().filter(({ family, internal }) => family === "IPv4" && !internal).map(({ address }) => address)[0] || await require('dns').promises.lookup(require('os').hostname());
+	else var ip = os.networkInterfaces()['Wi-Fi']?.filter(i => i?.family == 'IPv4')[0] || Object.values(os.networkInterfaces()).flat().filter(({ family, internal }) => family === "IPv4" && !internal).map(({ address }) => address)[0] || await require('dns').promises.lookup(os.hostname());
 
 	// La retourner
 	return ip.address || ip || '<votre ip local>';
 }
 
 // Fonction pour scanner les IPs sur le réseau
-async function scanNetwork(){
+async function scanNetwork(forConsole=false){
 	// Afficher un spinner
 	if(!process.env.SON_DISABLE_SPINNERS){
 		spinner.text = `Recherche d'appareils..`
@@ -936,26 +1001,34 @@ async function scanNetwork(){
 
 	// Obtenir la liste des appareils connectés au réseau
 	var waitGetIps = new Promise(async (resolve, reject) => {
-		// Obtenir les IPs de la config SSH, et celles présentes sur le réseau
-		var potentialIps = [...getSSHConfigIPs()]
-		potentialIps.push(...(await find()).map(device => device.ip))
-		potentialIps = potentialIps.filter((ip, i) => potentialIps.indexOf(ip) == i) // supprimer les doublons
+		// Obtenir beaucoup d'IPs potentielles à vérifier
+		var potentialIps = await findIPsToCheck()
 
 		// Si on a pas d'appareils dans la liste
 		if(!potentialIps?.length) resolve()
 
-		// Pour chaque IPs potentielles
-		if(!process.env.SON_DISABLE_SPINNERS) spinner.text = `Vérification pour SendOverNetwork.. (${potentialIps.length} appareils trouvés)`
-		for(var i = 0; i < potentialIps.length; i++){
-			var fetched = await fetch(`http://${potentialIps[i]}:3410/check`).then(res => res.text()).catch(err => {return''})
-			if(fetched.startsWith('sendovernetwork')) ips.push({ ip: `${potentialIps[i]}:3410`, name: fetched.split(' | ')[1] || fetched.replace('sendovernetwork ','') })
-			if(ips.length > 6) resolve() // si on a beaucoup d'IPs, on arrête la recherche
-			if(potentialIps.length == i + 1) resolve() // si on a fini de parcourir la liste, on arrête la recherche
-		}
+		// Vérifier chaque IP
+		if(!process.env.SON_DISABLE_SPINNERS) spinner.text = `Vérification pour SendOverNetwork.. (${potentialIps.length} tentatives)`
+		var verifiedIpsCount = 0
+		potentialIps.forEach(async (ip, i) => { // forEach, pour pouvoir faire plusieurs requêtes en parallele
+			// Faire une requête et l'ajouter si elle aboutit
+			var fetched = await fetchWithTimeout(`http://${ip}:3410/check`, {}, 800).then(res => res.text()).catch(err => { return err.code || err.type || err.toString() || '' })
+			if(fetched.startsWith('sendovernetwork')) ips.push({ ip: `${ip}:3410`, name: fetched.split(' | ')[1] || fetched.replace('sendovernetwork ','') })
+			verifiedIpsCount++
+			// Arrêter la recherche si nécessaire
+			if(ips.length > 6) return resolve() // si on a déjà beaucoup d'IPs
+			if(potentialIps.length == verifiedIpsCount) return resolve() // si on a fini de parcourir la liste
+		})
 	})
 	await waitGetIps
 
-	// Arrêter le spinner et retourner les IPs
+	// Arrêter le spinner
 	if(!process.env.SON_DISABLE_SPINNERS) spinner.stop()
-	return ips
+
+	// Afficher les résultats, ou les retourner
+	if(forConsole){
+		console.log(JSON.stringify(ips))
+		return process.exit()
+	}
+	else return ips
 }
