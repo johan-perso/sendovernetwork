@@ -1,12 +1,15 @@
 {
 	"name": "sendovernetwork",
-	"version": "3.0.1",
+	"version": "3.1.0",
 	"description": "Partager des fichiers via son réseau local",
 	"main": "index.js",
 	"bin": {
 		"sendonnetwork": "index.js",
 		"sendovernetwork": "index.js",
 		"son": "index.js"
+	},
+	"scripts": {
+		"build": "npx pkg -t node14-win,node14-linux,node14-macos -C Brotli index.js"
 	},
 	"keywords": [
 		"network",
@@ -21,10 +24,10 @@
 		"chalk": "^4.1.2",
 		"clipboardy": "^2.3.0",
 		"inquirer": "^8.2.0",
-		"local-devices": "^4.0.0",
 		"node-fetch": "^2.6.7",
 		"node-notifier": "10.0.0",
 		"ora": "^5.4.1",
+		"slash": "3.0.0",
 		"socket.io": "^4.6.1",
 		"socket.io-client": "^4.6.1",
 		"socket.io-msgpack-parser": "^3.0.2",
