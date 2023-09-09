@@ -80,4 +80,4 @@ Vous pouvez modifier certains paramètres de SendOverNetwork grâce aux variable
 
 ## Licence
 
-MIT © [Johan](https://johanstick.me)
+MIT © [Johan](https://johanstick.fr)
