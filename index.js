@@ -211,7 +211,7 @@ async function askIgnoreFolder(filePath){
 		upload(output, args?.port)
 	}
 
-	// Vérifier si la sous commande download est présente
+	// Vérifier si la sous commande fetchips est présente
 	if(defaultArgs.includes('fetchips') || defaultArgs.includes('--fetchips')){
 		scanNetwork(true) // le résultat est moche mais.. c'est fait pour être parsé par un autre programme (dans le but d'automatiser des transferts par exemple)
 	}
@@ -266,7 +266,7 @@ function showVersion(){
 		console.log("SendOverNetwork utilise actuellement la version " + chalk.cyan(require('./package.json').version))
 		console.log("────────────────────────────────────────────")
 		console.log("Développé par Johan le stickman")
-		console.log(chalk.cyan("https://johanstick.me"))
+		console.log(chalk.cyan("https://johanstick.fr"))
 	} else console.log(require('./package.json').version)
 	process.exit()
 }
